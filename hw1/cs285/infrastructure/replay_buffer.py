@@ -1,5 +1,14 @@
-from cs285.infrastructure.utils import *
+from cs285.infrastructure import utils
+import numpy as np
 
+
+def flatten_sequence(seq) -> list:
+    if len(seq) == 0:
+        return []
+    item1 = seq[0]
+    if not isinstance(item1, (np.ndarray, list, tuple)):
+        return [item1] + flatten_sequence(seq[1:])
+    return flatten_sequence[item1] + flatten_sequence(seq[1:])
 
 class ReplayBuffer(object):
 
@@ -32,7 +41,7 @@ class ReplayBuffer(object):
         # convert new rollouts into their component arrays, and append them onto
         # our arrays
         observations, actions, rewards, next_observations, terminals = (
-            convert_listofrollouts(paths, concat_rew))
+            utils.convert_listofrollouts(paths, concat_rew))
 
         if self.obs is None:
             self.obs = observations[-self.max_size:]
@@ -76,8 +85,18 @@ class ReplayBuffer(object):
         ## HINT 1: use np.random.permutation to sample random indices
         ## HINT 2: return corresponding data points from each array (i.e., not different indices from each array)
         ## HINT 3: look at the sample_recent_data function below
-
-        return TODO, TODO, TODO, TODO, TODO
+        
+        # rews = np.array(flatten_sequence(self.rews))
+        buffer_size = self.obs.shape[0]
+        replace = buffer_size < batch_size
+        sampled_inds = np.random.choice(buffer_size, batch_size, replace=replace)
+        return (
+            self.obs[sampled_inds],
+            self.acs[sampled_inds],
+            self.rews[sampled_inds],
+            self.next_obs[sampled_inds],
+            self.terminals[sampled_inds],
+        )     
 
     def sample_recent_data(self, batch_size=1):
         return (

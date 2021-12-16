@@ -79,21 +79,34 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
             observation = obs
         else:
             observation = obs[None]
-
-        # TODO return the action that the policy prescribes
-        raise NotImplementedError
+        dist = self._make_distribution(
+            torch.tensor(observation).type(torch.FloatTensor).to(ptu.device))
+        actions = dist.sample()
+        return actions.detach().cpu().numpy()
 
     # update/train this policy
     def update(self, observations, actions, **kwargs):
         raise NotImplementedError
+
+    def _make_distribution(self, observation: torch.FloatTensor) -> \
+                                torch.distributions.Distribution:
+        if self.discrete:
+            probs = F.softmax(self.logits_na(observation))
+            dist = distributions.Categorical(probs)
+        else:
+            mean = self.mean_net(observation)
+            dist = distributions.Normal(mean, self.logstd.exp())
+        return dist
 
     # This function defines the forward pass of the network.
     # You can return anything you want, but you should be able to differentiate
     # through it. For example, you can return a torch.FloatTensor. You can also
     # return more flexible objects, such as a
     # `torch.distributions.Distribution` object. It's up to you!
-    def forward(self, observation: torch.FloatTensor) -> Any:
-        raise NotImplementedError
+    def forward(self, observation: torch.FloatTensor) -> \
+                                torch.distributions.Distribution:
+        return self._make_distribution(observation)
+
 
 
 #####################################################
@@ -109,7 +122,14 @@ class MLPPolicySL(MLPPolicy):
             adv_n=None, acs_labels_na=None, qvals=None
     ):
         # TODO: update the policy and return the loss
-        loss = TODO
+        observations = torch.tensor(observations).type(torch.FloatTensor).to(ptu.device)
+        actions = torch.tensor(actions).type(torch.FloatTensor).to(ptu.device)
+        dist = self.forward(observations)
+        loss = -dist.log_prob(actions).sum()
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
         return {
             # You can add extra logging information here, but keep this line
             'Training Loss': ptu.to_numpy(loss),
