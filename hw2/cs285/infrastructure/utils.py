@@ -197,3 +197,24 @@ def add_noise(data_inp, noiseToSignal=0.01):
             0, np.absolute(std_of_noise[j]), (data.shape[0],)))
 
     return data
+
+
+def normalize_array_to_a_match(to_be_normalized_array, to_be_matched_array):
+    assert to_be_normalized_array.shape == to_be_matched_array.shape
+    to_be_normalized_mean_tensor = np.mean(to_be_normalized_array, axis = 0)[None, ...]
+    to_be_matched_mean_tensor = np.mean(to_be_matched_array, axis = 0)[None, ...]
+    to_be_normalized_std_tensor = np.std(to_be_normalized_array, axis=0)[None, ...]
+    to_be_matched_std_tensor = np.std(to_be_matched_array, axis=0)[None, ...]
+    normalized_array = (to_be_normalized_array -
+                        to_be_normalized_mean_tensor) / to_be_normalized_std_tensor
+    normalized_array = (normalized_array *
+                        to_be_matched_std_tensor) + to_be_matched_mean_tensor
+    return normalized_array
+
+
+def normalize_array(array):
+    mean_tensor = np.mean(array, axis = 0)[None, ...]
+    std_tensor = np.std(array, axis=0)[None, ...]
+    normalized_array = (array -
+                        mean_tensor) / std_tensor
+    return normalized_array

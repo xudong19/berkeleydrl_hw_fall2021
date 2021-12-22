@@ -17,7 +17,7 @@ The following files have blanks to be filled with your solutions from homework 1
 
 You will then need to complete the following new files for homework 2. The relevant sections are marked with "TODO".
 - [agents/pg_agent.py](cs285/agents/pg_agent.py)
-- [policies/MLP_policy.py](cs285/policies/MLP_policy)
+- [policies/MLP_policy.py](cs285/policies/MLP_policy.py)
 
 You will also want to look through [scripts/run_hw2.py](cs285/scripts/run_hw2.py) (if running locally) or [scripts/run_hw2.ipynb](cs285/scripts/run_hw1.2pynb) (if running on Colab), though you will not need to edit this files beyond changing runtime arguments in the Colab notebook.
 

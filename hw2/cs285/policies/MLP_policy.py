@@ -9,6 +9,7 @@ import torch
 from torch import distributions
 
 from cs285.infrastructure import pytorch_util as ptu
+from cs285.infrastructure import utils
 from cs285.policies.base_policy import BasePolicy
 
 
@@ -74,6 +75,7 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
                 self.baseline.parameters(),
                 self.learning_rate,
             )
+            self.baseline_loss = nn.MSELoss(reduction='sum')
         else:
             self.baseline = None
 
@@ -90,9 +92,9 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
             observation = obs
         else:
             observation = obs[None]
-        dist = self._make_distribution(
-            torch.tensor(observation).type(torch.FloatTensor).to(ptu.device))
-        actions = dist.sample()
+        observation = ptu.from_numpy(observation)
+        action_distribution = self.forward(observation)
+        actions = action_distribution.sample()
         return actions.detach().cpu().numpy()
 
     # update/train this policy
@@ -108,7 +110,6 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
         if self.discrete:
             logits = self.logits_na(observation)
             action_distribution = distributions.Categorical(logits=logits)
-            return action_distribution
         else:
             batch_mean = self.mean_net(observation)
             scale_tril = torch.diag(torch.exp(self.logstd))
@@ -118,7 +119,7 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
                 batch_mean,
                 scale_tril=batch_scale_tril,
             )
-            return action_distribution
+        return action_distribution
 
 #####################################################
 #####################################################
@@ -133,6 +134,7 @@ class MLPPolicyPG(MLPPolicy):
         observations = ptu.from_numpy(observations)
         actions = ptu.from_numpy(actions)
         advantages = ptu.from_numpy(advantages)
+        batch_size = observations.shape[0]
 
         # TODO: update the policy using policy gradient
         # HINT1: Recall that the expression that we want to MAXIMIZE
@@ -143,8 +145,19 @@ class MLPPolicyPG(MLPPolicy):
         # HINT3: don't forget that `optimizer.step()` MINIMIZES a loss
         # HINT4: use self.optimizer to optimize the loss. Remember to
             # 'zero_grad' first
-
-        TODO
+        action_distribution = self.forward(observations)
+        loss = -action_distribution.log_prob(actions)
+        assert loss.shape == advantages.shape, \
+            f"loss.shape: {loss.shape}; advantages.shape: {advantages.shape}"
+        weighted_loss = torch.mul(loss, advantages)
+        weighted_loss = weighted_loss.sum()
+        weighted_loss /= batch_size
+        self.optimizer.zero_grad()
+        weighted_loss.backward()
+        self.optimizer.step()
+        train_log = {
+            'Policy Network Loss': ptu.to_numpy(weighted_loss),
+        }
 
         if self.nn_baseline:
             ## TODO: update the neural network baseline using the q_values as
@@ -156,11 +169,17 @@ class MLPPolicyPG(MLPPolicy):
             ## HINT2: You will need to convert the targets into a tensor using
                 ## ptu.from_numpy before using it in the loss
 
-            TODO
-
-        train_log = {
-            'Training Loss': ptu.to_numpy(loss),
-        }
+            pred_values = self.baseline(observations)
+            q_values = utils.normalize_array(q_values)
+            q_values = ptu.from_numpy(q_values)
+            baseline_loss = self.baseline_loss(pred_values, q_values).sum()
+            baseline_loss /= baseline_loss
+            self.baseline_optimizer.zero_grad()
+            baseline_loss.backward()
+            self.baseline_optimizer.step()
+            train_log.update({
+                'Baseline Loss': ptu.to_numpy(baseline_loss),
+            })
         return train_log
 
     def run_baseline_prediction(self, observations):
