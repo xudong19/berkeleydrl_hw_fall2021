@@ -173,7 +173,7 @@ class MLPPolicyPG(MLPPolicy):
             q_values = utils.normalize_array(q_values)
             q_values = ptu.from_numpy(q_values)
             baseline_loss = self.baseline_loss(pred_values, q_values).sum()
-            baseline_loss /= baseline_loss
+            baseline_loss /= batch_size
             self.baseline_optimizer.zero_grad()
             baseline_loss.backward()
             self.baseline_optimizer.step()
