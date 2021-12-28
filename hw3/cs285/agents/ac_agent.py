@@ -41,8 +41,28 @@ class ACAgent(BaseAgent):
         #     update the actor
 
         loss = OrderedDict()
-        loss['Critic_Loss'] = TODO
-        loss['Actor_Loss'] = TODO
+        critic_updates = self.agent_params['num_critic_updates_per_agent_update']
+        critic_loss = 0
+        for _ in range(critic_updates):
+            critic_loss += self.critic.update(ob_no=ob_no,
+                                              ac_na=ac_na,
+                                              next_ob_no=next_ob_no,
+                                              reward_n=re_n,
+                                              terminal_n=terminal_n)
+        critic_loss /= critic_updates
+
+        actor_updates = self.agent_params['num_actor_updates_per_agent_update']
+        actor_loss = 0
+        advantage = self.estimate_advantage(ob_no=ob_no,
+                                            next_ob_no=next_ob_no,
+                                            re_n=re_n,
+                                            terminal_n=terminal_n)
+        for _ in range(actor_updates):
+            actor_loss += self.actor.update(observations=ob_no,
+                                            actions=ac_na, adv_n=advantage)
+        actor_loss /= actor_updates
+        loss['Critic_Loss'] = critic_loss
+        loss['Actor_Loss'] = actor_loss
 
         return loss
 
@@ -53,8 +73,10 @@ class ACAgent(BaseAgent):
         # 3) estimate the Q value as Q(s, a) = r(s, a) + gamma*V(s')
         # HINT: Remember to cut off the V(s') term (ie set it to 0) at terminal states (ie terminal_n=1)
         # 4) calculate advantage (adv_n) as A(s, a) = Q(s, a) - V(s)
-        adv_n = TODO
-
+        value_s_curr = self.critic.forward_np(ob_no)
+        value_s_next = self.critic.forward_np(next_ob_no) * (1 - terminal_n)
+        qa_s_curr = re_n + self.gamma * value_s_next
+        adv_n = qa_s_curr - value_s_curr
         if self.standardize_advantages:
             adv_n = (adv_n - np.mean(adv_n)) / (np.std(adv_n) + 1e-8)
         return adv_n

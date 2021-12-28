@@ -32,6 +32,48 @@
                 "--seed",
                 "1",
             ]
-        }
+        },
+        {
+            "name": "run_hw3_actor_critic: q4_ac_1_1",
+            "type": "python",
+            "request": "launch",
+            "program": "/home/xudong/Documents/courses/berkeleydrl/berkeleydrl_hw_fall2021/hw3/cs285/scripts/run_hw3_actor_critic.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--env_name", 
+                "CartPole-v0", 
+                "--exp_name", 
+                "q4_ac_1_1",
+                "-n",
+                "100",
+                "-b",
+                "1000",
+                "-ntu",
+                "1",
+                "-ngsptu",
+                "1",
+            ]
+        },
+        {
+            "name": "run_hw3_actor_critic: q4_1_100",
+            "type": "python",
+            "request": "launch",
+            "program": "/home/xudong/Documents/courses/berkeleydrl/berkeleydrl_hw_fall2021/hw3/cs285/scripts/run_hw3_actor_critic.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--env_name", 
+                "CartPole-v0", 
+                "--exp_name", 
+                "q4_1_100",
+                "-n",
+                "100",
+                "-b",
+                "1000",
+                "-ntu",
+                "1",
+                "-ngsptu",
+                "100",
+            ]
+        },
     ]
 }

@@ -127,4 +127,22 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
 class MLPPolicyAC(MLPPolicy):
     def update(self, observations, actions, adv_n=None):
         # TODO: update the policy and return the loss
-        return loss.item()
+        observations = ptu.from_numpy(observations)
+        actions = ptu.from_numpy(actions)
+        advantages = ptu.from_numpy(adv_n)
+        batch_size = observations.shape[0]
+        action_distribution = self.forward(observations)
+        loss = -action_distribution.log_prob(actions)
+        assert loss.shape == advantages.shape, \
+            f"loss.shape: {loss.shape}; advantages.shape: {advantages.shape}"
+        weighted_loss = torch.mul(loss, advantages)
+        weighted_loss = weighted_loss.sum()
+        weighted_loss /= batch_size
+        self.optimizer.zero_grad()
+        weighted_loss.backward()
+        self.optimizer.step()
+        return weighted_loss.item()
+        # train_log = {
+        #     'Policy Network Loss': ptu.to_numpy(weighted_loss),
+        # }
+        # return train_log
