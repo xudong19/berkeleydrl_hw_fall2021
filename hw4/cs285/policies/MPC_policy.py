@@ -1,6 +1,56 @@
 import numpy as np
-
+import random
+from scipy.stats import truncnorm
 from .base_policy import BasePolicy
+
+
+
+def update_value(old_v, new_v, alpha):
+    return alpha * new_v + (1 - alpha) * old_v
+
+
+# def get_truncated_normal(mean, var, low, upp):
+#     max_try_times = 10
+#     for _ in range(max_try_times):
+#         val = random.gauss(mean, np.sqrt(var))
+#         if low <= val <= upp:
+#             return val
+#     return (low + upp) / 2
+    
+    # X = truncnorm(
+    #     (low - mean) / np.sqrt(var), (upp - mean) / sd, loc=mean, scale=sd)
+    # return X.rvs()
+
+
+def get_truncated_normal_array(mean, var, low, upp):
+    max_try_times = 10
+    std = np.sqrt(var)
+    shape = mean.shape
+    valid_mask = np.full(shape, False)
+    remaining_mask = np.full(shape, True)
+    result = (low + upp) / 2
+    for _ in range(max_try_times):
+        new_result = np.random.normal(loc=mean, 
+                                  scale=std)
+        valid_mask_this_sample = np.logical_and(
+                                       low <= new_result, new_result >= upp)
+        to_be_added_sample_mask = np.logical_and(valid_mask_this_sample, 
+                                                 remaining_mask)
+        result[to_be_added_sample_mask] = new_result[to_be_added_sample_mask]
+        valid_mask = np.logical_or(valid_mask, valid_mask_this_sample)
+        remaining_mask = np.logical_not(valid_mask)
+        if np.all(valid_mask):
+            return result
+    return result
+
+
+def get_truncated_normal_array2(mean, var, low, upp):
+    # Though slightly faster, but incorrect sampling.
+    std = np.sqrt(var)
+    result = np.random.normal(loc=mean, 
+                                  scale=std)
+    return np.minimum(np.maximum(result, low), upp)
+        
 
 
 class MPCPolicy(BasePolicy):
@@ -46,24 +96,37 @@ class MPCPolicy(BasePolicy):
         if self.sample_strategy == 'cem':
             print(f"CEM params: alpha={self.cem_alpha}, "
                 + f"num_elites={self.cem_num_elites}, iterations={self.cem_iterations}")
-
+    
     def sample_action_sequences(self, num_sequences, horizon, obs=None):
         if self.sample_strategy == 'random' \
-            or (self.sample_strategy == 'cem' and obs is None):
+            or (obs is None):
             # TODO(Q1) uniformly sample trajectories and return an array of
             # dimensions (num_sequences, horizon, self.ac_dim) in the range
             # [self.low, self.high]
-            candidate_action_sequences = np.zeros((num_sequences, horizon, self.ac_dim))
-            for i_seq in range(num_sequences):
-                for i_step in range(horizon):
-                    action = np.random.uniform(low=self.low, high=self.high)
-                    candidate_action_sequences[i_seq, i_step, :] = action
+            # candidate_action_sequences = np.zeros((num_sequences, 
+            #                                        horizon, self.ac_dim))
+            candidate_action_sequences = \
+                np.random.uniform(low=np.tile(self.low[None, None, ...],
+                                              (num_sequences, horizon, 1)),
+                                  high=np.tile(self.high[None, None, ...],
+                                               (num_sequences, horizon, 1)))
+            assert candidate_action_sequences.shape == (num_sequences,
+                                                        horizon, self.ac_dim), \
+                                                            f"{candidate_action_sequences.shape}"
+            # for i_seq in range(num_sequences):
+            #     for i_step in range(horizon):
+            #         action = np.random.uniform(low=self.low, high=self.high)
+            #         candidate_action_sequences[i_seq, i_step, :] = action
             return candidate_action_sequences
         elif self.sample_strategy == 'cem':
             # TODO(Q5): Implement action selection using CEM.
             # Begin with randomly selected actions, then refine the sampling distribution
             # iteratively as described in Section 3.3, "Iterative Random-Shooting with Refinement" of
             # https://arxiv.org/pdf/1909.11652.pdf
+            
+            # step 1, init with random distribution
+            # mu = np.zeros((horizon, self.ac_dim))
+            # var = 10* np.ones((horizon, self.ac_dim))    
             for i in range(self.cem_iterations):
                 # - Sample candidate sequences from a Gaussian with the current
                 #   elite mean and variance
@@ -73,11 +136,49 @@ class MPCPolicy(BasePolicy):
                 #     (Hint: what existing function can we use to compute rewards for
                 #      our candidate sequences in order to rank them?)
                 # - Update the elite mean and variance
-                pass
+                if i == 0:
+                    candidate_action_sequences = self.sample_action_sequences(
+                        num_sequences, horizon, obs=None)
+                else:
+                    candidate_action_sequences = np.zeros((num_sequences, 
+                                                   horizon, self.ac_dim))
+                    # for i_seq in range(num_sequences):
+                    #     for i_step in range(horizon):
+                    #         for i_ac_dim in range(self.ac_dim):
+                    #             ac_element = get_truncated_normal(
+                    #                 mu[i_step, i_ac_dim], 
+                    #                 var[i_step, i_ac_dim], 
+                    #                 low=self.low[i_ac_dim], 
+                    #                 upp=self.high[i_ac_dim])
+                    #             candidate_action_sequences[
+                    #                 i_seq, i_step, i_ac_dim] = ac_element
+                    mu_broad = np.tile(mu[None, ...], (num_sequences, 1, 1))
+                    var_broad = np.tile(var[ None, ...], ( num_sequences, 1, 1))
+                    low_broad = np.tile(self.low[ None, None, ...], 
+                                        (num_sequences, horizon, 1))
+                    upp_broad = np.tile(self.high[None, None, ...], 
+                                        ( num_sequences, horizon, 1))
+                    candidate_action_sequences = get_truncated_normal_array(
+                        mu_broad, var_broad, low_broad, upp_broad
+                    )
+                
+                rewards_of_sequences = self.evaluate_candidate_sequences(
+                    candidate_action_sequences, obs)
+                elite_indes = np.argsort(rewards_of_sequences)[-self.cem_num_elites:]
+                new_mu = candidate_action_sequences[elite_indes, ...].mean(
+                    axis=0, keepdims=False)
+                new_var = candidate_action_sequences[elite_indes, ...].var(
+                    axis=0, keepdims=False)
+                if i == 0:
+                    mu = new_mu
+                    var = new_var
+                else:
+                    mu = update_value(mu, new_mu, self.cem_alpha)
+                    var = update_value(var, new_var, self.cem_alpha)
 
             # TODO(Q5): Set `cem_action` to the appropriate action sequence chosen by CEM.
             # The shape should be (horizon, self.ac_dim)
-            cem_action = None
+            cem_action = mu
 
             return cem_action[None]
         else:
