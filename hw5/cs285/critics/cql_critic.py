@@ -44,9 +44,37 @@ class CQLCritic(BaseCritic):
 
     def dqn_loss(self, ob_no, ac_na, next_ob_no, reward_n, terminal_n):
         """ Implement DQN Loss """
+        n_batch = ob_no.shape[0]
+
+        qa_t_values = self.q_net(ob_no)
+        q_t_values = torch.gather(qa_t_values, 1, ac_na.unsqueeze(1)).squeeze(1)
+        
+        # TODO compute the Q-values from the target network 
+        qa_tp1_values = self.q_net_target(next_ob_no)
+
+        if self.double_q:
+            # You must fill this part for Q2 of the Q-learning portion of the homework.
+            # In double Q-learning, the best action is selected using the Q-network that
+            # is being updated, but the Q-value for this action is obtained from the
+            # target Q-network. Please review Lecture 8 for more details,
+            # and page 4 of https://arxiv.org/pdf/1509.06461.pdf is also a good reference.
+            qa_t_values_next = self.q_net(next_ob_no)
+            argmax_actions = torch.argmax(qa_t_values_next, dim=1, keepdim=True)
+            q_tp1 = torch.gather(qa_tp1_values, 1, argmax_actions).squeeze(1)
+        else:
+            q_tp1, _ = qa_tp1_values.max(dim=1)
+
+        # TODO compute targets for minimizing Bellman error
+        # HINT: as you saw in lecture, this would be:
+            #currentReward + self.gamma * qValuesOfNextTimestep * (not terminal)
+        target = reward_n + self.gamma * q_tp1 * (1 - terminal_n)
+        target = target.detach()
+
+        assert q_t_values.shape == target.shape
+        loss = self.loss(q_t_values, target)
+        loss = loss.sum() / n_batch
 
         return loss, qa_t_values, q_t_values
-
 
     def update(self, ob_no, ac_na, next_ob_no, reward_n, terminal_n):
         """
@@ -69,6 +97,7 @@ class CQLCritic(BaseCritic):
         next_ob_no = ptu.from_numpy(next_ob_no)
         reward_n = ptu.from_numpy(reward_n)
         terminal_n = ptu.from_numpy(terminal_n)
+        n_batch = ob_no.shape[0]
 
         # Compute the DQN Loss 
         loss, qa_t_values, q_t_values = self.dqn_loss(
@@ -78,9 +107,10 @@ class CQLCritic(BaseCritic):
         # CQL Implementation
         # TODO: Implement CQL as described in the pdf and paper
         # Hint: After calculating cql_loss, augment the loss appropriately
-        cql_loss = None
-        q_t_logsumexp = None
-
+        q_t_logsumexp = torch.log(torch.exp(qa_t_values).sum(dim=-1))
+        cql_loss = (q_t_logsumexp - q_t_values).sum / n_batch
+        loss += self.cql_alpha * cql_loss
+        
         info = {'Training Loss': ptu.to_numpy(loss)}
 
         # TODO: Uncomment these lines after implementing CQL

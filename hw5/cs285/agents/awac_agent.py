@@ -51,27 +51,56 @@ class AWACAgent(DQNAgent):
 
     def get_qvals(self, critic, obs, action):
         # get q-value for a given critic, obs, and action
-        return q_value
+        if isinstance(obs, torch.Tensor):
+            obs = ptu.to_numpy(obs)
+        if isinstance(action, torch.Tensor):
+            action = ptu.to_numpy(action)
+        qa_values = critic.qa_values(obs)
+        batch, action_dim = qa_values.shape
+        if action.size == 1:
+            action = np.array([[action.item()] * batch])
+        elif action.size == batch:
+            action = np.reshape(action, (batch, 1))
+        q_values = np.take(qa_values, action).reshape(batch, )
+        
+        # q_values = qa_values[..., action]
+        assert q_values.shape == (batch, ), f"q_values.shape: {q_values.shape}"
+        return q_values
 
     def estimate_advantage(self, ob_no, ac_na, re_n, next_ob_no, terminal_n, n_actions=10):
         # TODO convert to torch tensors
+        ob_no = ptu.from_numpy(ob_no)
+        ac_na = ptu.from_numpy(ac_na).to(torch.long)
+        next_ob_no = ptu.from_numpy(next_ob_no)
+        re_n = ptu.from_numpy(re_n)
+        terminal_n = ptu.from_numpy(terminal_n)
+        batch,  _ = ob_no.shape
 
         vals = []
         # TODO Calculate Value Function Estimate given current observation
         # You may find it helpful to utilze get_qvals defined above
-        dist = None
         if self.agent_params['discrete']:
+            action_distribution = self.awac_actor(ob_no)
             for i in range(self.agent_params['ac_dim']):
-                pass
+                i = np.array(i)
+                val = self.get_qvals(self.exploitation_critic, ob_no, i)
+                prob = ptu.to_numpy(torch.exp(action_distribution.log_prob(ptu.from_numpy(i)))).reshape(batch, )
+                vals.append(val * prob)
+            
         else:
             for _ in range(n_actions):
-                pass
-        v_pi = None
+                action = self.awac_actor.get_action()
+                val = self.get_qvals(self.exploitation_critic, ob_no, action)
+                vals.append(val * 1.0/n_actions)
+                
+        v_pi = sum(vals)
 
         # TODO Calculate Q-Values
-        q_vals = None
-        # TODO Calculate the Advantage        
-        return None
+        q_vals = self.get_qvals(self.exploitation_critic, ob_no, ac_na)
+        # TODO Calculate the Advantage
+        assert v_pi.shape == q_vals.shape, \
+            f"v_pi.shape: {v_pi.shape}; q_vals.shape: {q_vals.shape}"         
+        return q_vals - v_pi
 
     def train(self, ob_no, ac_na, re_n, next_ob_no, terminal_n):
         log = {}
@@ -86,34 +115,54 @@ class AWACAgent(DQNAgent):
         ):
             # TODO: Get Reward Weights
             # Get the current explore reward weight and exploit reward weight
+            explore_weight = self.explore_weight_schedule.value(self.t)
+            exploit_weight = self.exploit_weight_schedule.value(self.t)
 
             # TODO: Run Exploration Model #
             # Evaluate the exploration model on s' to get the exploration bonus
             # HINT: Normalize the exploration bonus, as RND values vary highly in magnitudeelse:
-
+            expl_bonus = self.exploration_model.forward_np(next_ob_no)
+            expl_bonus = normalize(
+                expl_bonus,
+                expl_bonus.mean(),
+                expl_bonus.std(),
+            )
             # TODO: Reward Calculations #
             # Calculate mixed rewards, which will be passed into the exploration critic
             # HINT: See doc for definition of mixed_reward
+            mixed_reward = (
+                explore_weight * expl_bonus +
+                exploit_weight * re_n
+            )
 
             # TODO: Calculate the environment reward
             # HINT: For part 1, env_reward is just 're_n'
             #       After this, env_reward is 're_n' shifted by self.exploit_rew_shift,
             #       and scaled by self.exploit_rew_scale
+            env_reward = (re_n + self.exploit_rew_shift) * self.exploit_rew_scale
 
             # TODO: Update Critics And Exploration Model #
             # 1): Update the exploration model (based off s')
             # 2): Update the exploration critic (based off mixed_reward)
             # 3): Update the exploitation critic (based off env_reward)
+            expl_model_loss = self.exploration_model.update(ob_no)
+            exploration_critic_loss = self.exploration_critic.update(
+                ob_no, ac_na, next_ob_no, mixed_reward, terminal_n)
+            exploitation_critic_loss = self.exploitation_critic.update(
+                ob_no, ac_na, next_ob_no, env_reward, terminal_n)
 
 
             # TODO: update actor
             # 1): Estimate the advantage
             # 2): Calculate the awac actor loss
+            adv_n = self.estimate_advantage(ob_no, ac_na, re_n, next_ob_no, terminal_n)
+            actor_loss = self.awac_actor.update(ob_no, ac_na, adv_n)
 
             # TODO: Update Target Networks #
             if self.num_param_updates % self.target_update_freq == 0:
                 #  Update the exploitation and exploration target networks
-                pass
+                self.exploration_critic.update_target_network()
+                self.exploitation_critic.update_target_network()
 
             # Logging #
             log['Exploration Critic Loss'] = exploration_critic_loss['Training Loss']
@@ -121,7 +170,7 @@ class AWACAgent(DQNAgent):
             log['Exploration Model Loss'] = expl_model_loss
 
             # Uncomment these lines after completing awac
-            # log['Actor Loss'] = actor_loss
+            log['Actor Loss'] = actor_loss
 
             self.num_param_updates += 1
 
