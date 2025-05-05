@@ -1,5 +1,5 @@
 My completed assignments for 
-[Berkeley CS 285: Deep Reinforcement Learning, Decision Making, and Control](http://rail.eecs.berkeley.edu/deeprlcourse/), 
+[Berkeley CS 285: Deep Reinforcement Learning, Decision Making, and Control](https://rail.eecs.berkeley.edu/deeprlcourse-fa21/), 
 the fall 2021 semester.
 
 The repo was forked from https://github.com/berkeleydeeprlcourse/homework_fall2021. 
